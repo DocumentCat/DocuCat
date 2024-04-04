@@ -91,7 +91,7 @@ export const SETTINGS: UiSetting[] = [
   {
     key: SETTINGS_KEYS.DARK_MODE_ENABLED,
     type: 'boolean',
-    default: false,
+    default: true,
   },
   {
     key: SETTINGS_KEYS.DARK_MODE_THUMB_INVERTED,
