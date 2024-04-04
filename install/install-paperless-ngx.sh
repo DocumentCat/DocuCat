@@ -75,20 +75,166 @@ default_time_zone=$(timedatectl show -p Timezone --value)
 
 set -e
 
-URL=""
-PORT="8000"
-TIME_ZONE="$default_time_zone"
-DATABASE_BACKEND="postgres"
-TIKA_ENABLED="yes"
-OCR_LANGUAGE="eng"
-USERMAP_UID="1000"
-USERMAP_GID="1000"
-TARGET_FOLDER="$(pwd)/docucat"
-CONSUME_FOLDER="$TARGET_FOLDER/consume"
-MEDIA_FOLDER=""
-DATA_FOLDER=""
-DATABASE_FOLDER=""
-USERNAME="docucat"
+echo ""
+echo "#############################################"
+echo "###   paperless-ngx docker installation   ###"
+echo "#############################################"
+echo ""
+echo "This script will download, configure and start paperless-ngx."
+
+echo ""
+echo "1. Application configuration"
+echo "============================"
+
+echo ""
+echo "The URL paperless will be available at. This is required if the"
+echo "installation will be accessible via the web, otherwise can be left blank."
+echo "Example: https://paperless.example.com"
+echo ""
+
+ask "URL" ""
+URL=$ask_result
+
+echo ""
+echo "The port on which the paperless webserver will listen for incoming"
+echo "connections."
+echo ""
+
+ask "Port" "8000"
+PORT=$ask_result
+
+echo ""
+echo "Paperless requires you to configure the current time zone correctly."
+echo "Otherwise, the dates of your documents may appear off by one day,"
+echo "depending on where you are on earth."
+echo "Example: Europe/Berlin"
+echo "See here for a list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+echo ""
+
+ask "Current time zone" "$default_time_zone"
+TIME_ZONE=$ask_result
+
+echo ""
+echo "Database backend: PostgreSQL, MariaDB, and SQLite are available. Use PostgreSQL"
+echo "if unsure. If you're running on a low-power device such as Raspberry"
+echo "Pi, use SQLite to save resources."
+echo ""
+
+ask "Database backend" "postgres" "postgres sqlite mariadb"
+DATABASE_BACKEND=$ask_result
+
+echo ""
+echo "Paperless is able to use Apache Tika to support Office documents such as"
+echo "Word, Excel, Powerpoint, and Libreoffice equivalents. This feature"
+echo "requires more resources due to the required services."
+echo ""
+
+ask "Enable Apache Tika?" "no" "yes no"
+TIKA_ENABLED=$ask_result
+
+echo ""
+echo "Specify the default language that most of your documents are written in."
+echo "Use ISO 639-2, (T) variant language codes: "
+echo "https://www.loc.gov/standards/iso639-2/php/code_list.php"
+echo "Common values: eng (English) deu (German) nld (Dutch) fra (French)"
+echo "This can be a combination of multiple languages such as deu+eng"
+echo ""
+
+ask "OCR language" "eng"
+OCR_LANGUAGE=$ask_result
+
+echo ""
+echo "Specify the user id and group id you wish to run paperless as."
+echo "Paperless will also change ownership on the data, media and consume"
+echo "folder to the specified values, so it's a good idea to supply the user id"
+echo "and group id of your unix user account."
+echo "If unsure, leave default."
+echo ""
+
+ask "User ID" "$(id -u)"
+USERMAP_UID=$ask_result
+
+ask "Group ID" "$(id -g)"
+USERMAP_GID=$ask_result
+
+echo ""
+echo "2. Folder configuration"
+echo "======================="
+echo ""
+echo "The target folder is used to store the configuration files of "
+echo "paperless. You can move this folder around after installing paperless."
+echo "You will need this folder whenever you want to start, stop, update or "
+echo "maintain your paperless instance."
+echo ""
+
+ask "Target folder" "$(pwd)/paperless-ngx"
+TARGET_FOLDER=$ask_result
+
+echo ""
+echo "The consume folder is where paperless will search for new documents."
+echo "Point this to a folder where your scanner is able to put your scanned"
+echo "documents."
+echo ""
+echo "CAUTION: You must specify an absolute path starting with / or a relative "
+echo "path starting with ./ here. Examples:"
+echo "  /mnt/consume"
+echo "  ./consume"
+echo ""
+
+ask_docker_folder "Consume folder" "$TARGET_FOLDER/consume"
+CONSUME_FOLDER=$ask_result
+
+echo ""
+echo "The media folder is where paperless stores your documents."
+echo "Leave empty and docker will manage this folder for you."
+echo "Docker usually stores managed folders in /var/lib/docker/volumes."
+echo ""
+echo "CAUTION: If specified, you must specify an absolute path starting with /"
+echo "or a relative path starting with ./ here."
+echo ""
+
+ask_docker_folder "Media folder" ""
+MEDIA_FOLDER=$ask_result
+
+echo ""
+echo "The data folder is where paperless stores other data, such as your"
+if [[ "$DATABASE_BACKEND" == "sqlite" ]] ; then
+	echo -n "SQLite database, the "
+fi
+echo "search index and other data."
+echo "As with the media folder, leave empty to have this managed by docker."
+echo ""
+echo "CAUTION: If specified, you must specify an absolute path starting with /"
+echo "or a relative path starting with ./ here."
+echo ""
+
+ask_docker_folder "Data folder" ""
+DATA_FOLDER=$ask_result
+
+if [[ "$DATABASE_BACKEND" == "postgres" || "$DATABASE_BACKEND" == "mariadb" ]] ; then
+	echo ""
+	echo "The database folder, where your database stores its data."
+	echo "Leave empty to have this managed by docker."
+	echo ""
+	echo "CAUTION: If specified, you must specify an absolute path starting with /"
+	echo "or a relative path starting with ./ here."
+	echo ""
+
+	ask_docker_folder "Database folder" ""
+	DATABASE_FOLDER=$ask_result
+fi
+
+echo ""
+echo "3. Login credentials"
+echo "===================="
+echo ""
+echo "Specify initial login credentials. You can change these later."
+echo "A mail address is required, however it is not used in paperless. You don't"
+echo "need to provide an actual mail address."
+echo ""
+
+ask "Paperless username" "$(whoami)"
+USERNAME=$ask_result
 
 while true; do
 	read -r -sp "Paperless password: " PASSWORD
@@ -109,7 +255,52 @@ while true; do
 	fi
 done
 
-EMAIL="$USERNAME@localhost"
+ask "Email" "$USERNAME@localhost"
+EMAIL=$ask_result
+
+echo ""
+echo "Summary"
+echo "======="
+echo ""
+
+echo "Target folder: $TARGET_FOLDER"
+echo "Consume folder: $CONSUME_FOLDER"
+if [[ -z $MEDIA_FOLDER ]] ; then
+	echo "Media folder: Managed by docker"
+else
+	echo "Media folder: $MEDIA_FOLDER"
+fi
+if [[ -z $DATA_FOLDER ]] ; then
+	echo "Data folder: Managed by docker"
+else
+	echo "Data folder: $DATA_FOLDER"
+fi
+if [[ "$DATABASE_BACKEND" == "postgres" || "$DATABASE_BACKEND" == "mariadb" ]] ; then
+	if [[ -z $DATABASE_FOLDER ]] ; then
+		echo "Database folder: Managed by docker"
+	else
+		echo "Database folder: $DATABASE_FOLDER"
+	fi
+fi
+
+echo ""
+echo "URL: $URL"
+echo "Port: $PORT"
+echo "Database: $DATABASE_BACKEND"
+echo "Tika enabled: $TIKA_ENABLED"
+echo "OCR language: $OCR_LANGUAGE"
+echo "User id: $USERMAP_UID"
+echo "Group id: $USERMAP_GID"
+echo ""
+echo "Paperless username: $USERNAME"
+echo "Paperless email: $EMAIL"
+
+echo ""
+read -r -p "Press any key to install."
+
+echo ""
+echo "Installing paperless..."
+echo ""
 
 mkdir -p "$TARGET_FOLDER"
 
@@ -144,7 +335,7 @@ read -r -a OCR_LANGUAGES_ARRAY <<< "${_split_langs}"
 	fi
 	echo "PAPERLESS_TIME_ZONE=$TIME_ZONE"
 	echo "PAPERLESS_OCR_LANGUAGE=$OCR_LANGUAGE"
-	echo "PAPERLESS_SECRET_KEY=$SECRET_KEY"
+	echo "PAPERLESS_SECRET_KEY='$SECRET_KEY'"
 	if [[ ! ${DEFAULT_LANGUAGES[*]} =~ ${OCR_LANGUAGES_ARRAY[*]} ]] ; then
 		echo "PAPERLESS_OCR_LANGUAGES=${OCR_LANGUAGES_ARRAY[*]}"
 	fi
