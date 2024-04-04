@@ -12,11 +12,11 @@ useradd --system --group samba
 # Create the share drive
 mkdir /home/samba/share
 
-# Backup existing confg
+# Backup existing config
 mv /etc/samba/smb.conf /etc/samba/backup-smb.conf
 
 # Copy our config
-cp ../resources/sambaconfig.conf /etc/samba/smb.conf
+cp ./sambaconfig.conf /etc/samba/smb.conf
 
 # Allow Samba through firewall
 ufw allow samba
